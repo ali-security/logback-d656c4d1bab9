@@ -2,6 +2,11 @@ name: CI
 
 on:
   workflow_dispatch:    # ← this enables manual runs
+    inputs:
+      test-filter:
+        description: 'surefire -Dtest selector (empty = full suite)'
+        required: false
+        default: ''
 
   # Trigger on push to any branch
   #push:
@@ -24,6 +29,7 @@ jobs:
   Test:
     name: JDK ${{ matrix.jdk }}, ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       matrix:
         jdk: [21]
@@ -42,6 +48,34 @@ jobs:
         cache: maven  # This enables Maven dependency caching
     - name: Install
       # download dependencies, etc, so test log looks better
-      run: mvn -B install
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.test-filter }}" ]; then
+          mvn -B install -Dtest="${{ inputs.test-filter }}" -Dsurefire.failIfNoSpecifiedTests=false
+        else
+          mvn -B install
+        fi
+    - name: Package release jars
+      # seal: release.sh runs `mvn install` then `mvn deploy` without clean; the second
+      # bundle pass adds the Originally-Created-By manifest header the public jar carries
+      if: matrix.os == 'ubuntu-latest'
+      run: mvn -B -q install -pl logback-classic -am -Dmaven.test.skip.exec=true
+    - name: Test report
+      # seal: per-module surefire totals plus one line per skipped test with its source reason
+      shell: python
+      run: |
+        import subprocess, sys
+        mods = ["logback-core", "logback-core-blackbox", "logback-classic", "logback-classic-misc",
+                "logback-classic-blackbox", "logback-access", "logback-examples"]
+        sys.exit(subprocess.call([sys.executable, ".seal-test-report.py"] + mods))
+    - name: Upload logback-classic jars
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: logback-classic-jars
+        path: |
+          logback-classic/target/logback-classic-*[0-9].jar
+          logback-classic/target/logback-classic-*-tests.jar
+        if-no-files-found: error
 
 

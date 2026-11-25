@@ -2,18 +2,26 @@ dist: trusty
 
 language: java
 
-jdk:
-  - oraclejdk11
+# seal: oraclejdk11 cannot compile logback-classic-blackbox (jetty-ee10 12.x test
+# deps are Java 17 class files); upstream main.yml builds with temurin 21, so
+# Temurin 21 is installed in before_install instead.
 
 notifications:
   email:
       - notification@qos.ch
+
+before_install:
+  - curl -fsSL --retry 3 -o /tmp/jdk21.tar.gz "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jdk/hotspot/normal/eclipse"
+  - mkdir -p $HOME/jdk21 && tar xzf /tmp/jdk21.tar.gz -C $HOME/jdk21 --strip-components=1
+  - export JAVA_HOME=$HOME/jdk21 && export PATH=$JAVA_HOME/bin:$PATH
+  - java -version && mvn -version
 
 install: /bin/true
 
 script:
   - mvn clean
   - mvn install
+  - python3 .seal-test-report.py logback-core logback-core-blackbox logback-classic logback-classic-misc logback-classic-blackbox logback-access logback-examples
 cache:
   directories:
   - $HOME/.m2
